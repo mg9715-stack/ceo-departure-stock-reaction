@@ -1,0 +1,21 @@
+Events: 1353   placebo days: 3918
+
+          mean_car  p_down  p_drop2  p_sdrop1
+is_event                                     
+0          -0.0006  0.5089   0.2338    0.1309
+1          -0.0115  0.5750   0.3348    0.2639
+
+y_down   : b(is_event) = +0.267  (SE 0.061, p = 1.2e-05)  odds ratio = 1.31
+y_drop2  : b(is_event) = +0.501  (SE 0.066, p = 2.6e-14)  odds ratio = 1.65
+y_sdrop1 : b(is_event) = +0.867  (SE 0.077, p = 4.8e-29)  odds ratio = 2.38
+
+y_drop2 by departure reason (baseline = ordinary day for the same stock):
+                                 coef      p  odds_ratio
+Intercept                      -1.187  0.000       0.305
+C(reason)[T.death]              0.676  0.192       1.966
+C(reason)[T.fired_legal]        1.252  0.001       3.496
+C(reason)[T.fired_performance]  0.967  0.000       2.630
+C(reason)[T.health]             0.702  0.121       2.017
+C(reason)[T.new_opportunity]    1.767  0.000       5.852
+C(reason)[T.other_mna]          0.130  0.532       1.138
+C(reason)[T.retired]            0.265  0.001       1.303

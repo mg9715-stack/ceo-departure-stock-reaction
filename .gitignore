@@ -1,0 +1,6 @@
+# rebuilt by run.sh
+data/
+models/
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,84 @@
+
+[y_drop2] walk-forward OOS, 1016 events 2012-2024, base rate 0.347
+               auc  log_loss   brier  car_top_tercile  car_bottom_tercile  p_down_top_tercile
+model                                                                                        
+base        0.5596    0.6492  0.2282              NaN                 NaN                 NaN
+lr_market   0.5962    0.6448  0.2262          -0.0163             -0.0089              0.4307
+lr_text     0.5956    0.6396  0.2236          -0.0237             -0.0085              0.4307
+xgb_text    0.5988    0.6515  0.2274          -0.0170             -0.0118              0.4366
+lr_finbert  0.5949    0.6436  0.2257          -0.0233             -0.0052              0.4307
+lr_full     0.5952    0.6415  0.2245          -0.0243             -0.0037              0.4425
+xgb_full    0.6015    0.6529  0.2282          -0.0198             -0.0071              0.4307
+ensemble    0.6071    0.6403  0.2240          -0.0228             -0.0074              0.4572
+
+[y_drop5] walk-forward OOS, 1016 events 2012-2024, base rate 0.187
+               auc  log_loss   brier  car_top_tercile  car_bottom_tercile  p_down_top_tercile
+model                                                                                        
+base        0.5520    0.4857  0.1531              NaN                 NaN                 NaN
+lr_market   0.6210    0.4793  0.1513          -0.0213             -0.0116              0.2714
+lr_text     0.6210    0.4757  0.1494          -0.0264             -0.0106              0.2802
+xgb_text    0.6349    0.4846  0.1520          -0.0222             -0.0120              0.2802
+lr_finbert  0.6092    0.4783  0.1506          -0.0215             -0.0057              0.2478
+lr_full     0.6104    0.4787  0.1502          -0.0216             -0.0103              0.2566
+xgb_full    0.6327    0.4842  0.1522          -0.0210             -0.0095              0.2743
+ensemble    0.6307    0.4748  0.1495          -0.0223             -0.0055              0.2743
+
+[y_sdrop1] walk-forward OOS, 1016 events 2012-2024, base rate 0.281
+               auc  log_loss   brier  car_top_tercile  car_bottom_tercile  p_down_top_tercile
+model                                                                                        
+base        0.4993    0.5990  0.2040              NaN                 NaN                 NaN
+lr_market   0.5134    0.5983  0.2037          -0.0146             -0.0102              0.2891
+lr_text     0.5629    0.5954  0.2019          -0.0245             -0.0089              0.3451
+xgb_text    0.5551    0.6120  0.2077          -0.0215             -0.0110              0.3274
+lr_finbert  0.5321    0.6013  0.2047          -0.0235             -0.0100              0.3245
+lr_full     0.5601    0.5983  0.2029          -0.0258             -0.0085              0.3481
+xgb_full    0.5551    0.6154  0.2090          -0.0213             -0.0092              0.3156
+ensemble    0.5600    0.6016  0.2043          -0.0240             -0.0101              0.3451
+
+[y_down] walk-forward OOS, 1016 events 2012-2024, base rate 0.593
+               auc  log_loss   brier  car_top_tercile  car_bottom_tercile  p_down_top_tercile
+model                                                                                        
+base        0.4815    0.6800  0.2434              NaN                 NaN                 NaN
+lr_market   0.4697    0.6803  0.2436          -0.0095             -0.0216              0.5664
+lr_text     0.5077    0.6799  0.2434          -0.0246             -0.0113              0.5929
+xgb_text    0.4946    0.7079  0.2567          -0.0164             -0.0187              0.5959
+lr_finbert  0.5010    0.6809  0.2439          -0.0219             -0.0129              0.6165
+lr_full     0.5095    0.6805  0.2437          -0.0241             -0.0115              0.6165
+xgb_full    0.5033    0.7087  0.2569          -0.0196             -0.0129              0.6047
+ensemble    0.5076    0.6894  0.2481          -0.0197             -0.0130              0.6077
+
+=== y_drop2  (baseline reason = retired, market vars standardised, HC1 SEs) ===
+                      Coef.  Std.Err.       z  P>|z|
+const                -0.900     0.078 -11.533  0.000
+death                 0.350     0.522   0.670  0.503
+fired_legal           0.984     0.372   2.645  0.008
+fired_performance     0.590     0.144   4.084  0.000
+health                0.470     0.471   0.998  0.318
+new_opportunity       1.502     0.348   4.322  0.000
+other_mna            -0.053     0.291  -0.182  0.855
+pre_car_60            0.058     0.062   0.929  0.353
+pre_vol_60            0.165     0.077   2.143  0.032
+beta                  0.139     0.061   2.293  0.022
+log_dollar_vol       -0.078     0.060  -1.292  0.197
+mkt_ret_20           -0.044     0.059  -0.749  0.454
+is_interim_successor -0.285     0.406  -0.701  0.483
+pseudo R2 = 0.0389, n = 1353
+
+LR standardised coefficients (+ = more likely to drop >2%):
+topic_4          -0.064
+kw_retire        -0.055
+topic_3          -0.055
+fb_positive      -0.043
+kw_activist      -0.037
+log_dollar_vol   -0.036
+kw_personal      -0.033
+fb_pc_6          -0.031
+kw_legal          0.043
+kw_earnings       0.045
+kw_planned        0.045
+kw_poached        0.045
+fb_negative       0.047
+kw_resign         0.054
+beta              0.057
+pre_vol_60        0.071
+saved models/ceo_model.joblib
