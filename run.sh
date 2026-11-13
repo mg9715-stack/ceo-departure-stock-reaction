@@ -12,3 +12,4 @@ python3 event_study.py      # prices, market-model CARs, pre-event features
 python3 finbert.py          # FinBERT sentiment + embeddings for every text (cached, ~3 min)
 python3 placebo.py          # logit: CEO-event days vs ordinary days
 python3 train.py | tee ../reports/train_log.txt   # walk-forward LR / XGBoost + final models
+python3 make_figures.py     # README figures

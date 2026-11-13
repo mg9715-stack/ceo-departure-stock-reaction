@@ -1,89 +1,169 @@
-# CEO Departures → Stock Reaction
+# CEO Exits & Equity Tail Risk
 
-**Question:** when a CEO resigns or steps down, does the stock go down, and can we predict which
-announcements will hurt, by reading the news?
+**An NLP + event-study pipeline that reads CEO-departure news and forecasts the probability of a
+material abnormal stock drop. It is evaluated strictly out-of-sample with walk-forward validation.**
 
-## Pipeline
+`event study` · `market-model abnormal returns` · `placebo-controlled logit` · `two-stage NLP stacking`
+· `FinBERT transformer embeddings` · `XGBoost` · `walk-forward CV` · `leakage controls` · `ablation study`
 
-| Step | Script | What it does |
-|---|---|---|
-| 1 | `build_events.py` | 3,332 dated CEO departures (1993–2025) from the open **CEO Dismissal Database** (Gentry et al., Zenodo 23328926). Each departure has a hand-coded reason and a `notes` field that quotes or summarises the press release and news coverage. Sentences describing the share-price reaction are **removed** to prevent label leakage. |
-| 2 | `map_tickers.py` | Company → ticker, using tickers quoted in the press release first and otherwise a Yahoo search accepted only on a ≥0.85 name match. 1,595 events matched. |
-| 3 | `event_study.py` | Market-model abnormal returns (β estimated on days −250…−21 vs SPY). Target window CAR[−1,+1]. Also builds pre-event features: 60-day abnormal return, idiosyncratic vol, β, liquidity, market momentum. **1,353 events** have usable prices. |
-| 4 | `placebo.py` | Logistic regression of the CEO-event days against 3,918 random ordinary days for the **same stocks**, with SEs clustered by ticker. |
-| 5 | `features.py` / `train.py` | NLP features (below), then logistic regression and XGBoost, evaluated **walk-forward by year** (2012–2024, 1,016 out-of-sample events). |
-| 6 | `predict.py` | Feed it new news plus a ticker and it outputs probabilities, the inferred departure type and the main drivers. |
+---
 
-**NLP features** (`features.py`):
-1. **Departure-type classifier:** TF-IDF + logistic regression trained on all 3,332 texts to infer *why* the CEO left (fired for performance or legal issues, retired, poached, health, death, M&A). 5-fold accuracy is 76%, against a 48% majority-class baseline. Out-of-fold probabilities are passed to stage 2, so there is no in-sample leakage.
-2. **19 keyword flags** a trader would look for: effective immediately, interim CEO, search firm, successor named, stays as chair, investigation, poached, activist, guidance cut, "personal reasons", and so on.
-3. **Sentiment rates** from Loughran-McDonald-style negative, uncertainty and positive word lists.
-4. **15 latent topics** (TF-IDF → SVD).
-5. **FinBERT** (`finbert.py`, ProsusAI/finbert): sentiment probabilities plus a 768-dim mean-pooled embedding, compressed to 16 PCs. The PCA is re-fit inside each fold. Texts longer than 512 tokens are chunked and averaged, and results are cached in `data/finbert_cache.parquet`.
+## TL;DR
+
+| | |
+|---|---|
+| **Does a CEO exit move the stock?** | Yes. The mean 3-day abnormal return is **−1.15% (t = −5.9)** across 1,353 departures. Against a placebo of ordinary days for the same stocks, an exit raises the odds of a >2% abnormal drop **1.65×** (p ≈ 10⁻¹⁴). |
+| **Does the *type* of exit matter?** | It's the dominant factor. A CEO poached by a rival is worst (**5.9×** odds), then fired for misconduct (**3.5×**) and fired for performance (**2.6×**). Planned retirements barely register (1.3×). |
+| **Can you predict it from the news?** | Direction, no: AUC 0.51, because 3-day idiosyncratic noise (σ ≈ 4%) swamps a 1% mean effect. **Tail risk, yes:** AUC **0.63** for >5% drops. On a volatility-normalised target the NLP features add **+5 AUC points** over market features alone. |
+| **Is the signal economically meaningful?** | The model's high-risk tercile realised **−2.28%** CAR out-of-sample, against **−0.74%** for the low-risk tercile, a 3× spread. |
+| **Live inference** | `predict.py` scores any new article, file or Google News feed for a ticker in seconds. |
+
+![CAR paths](reports/figures/car_paths.png)
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[CEO Dismissal Database<br/>3,332 departures 1993-2025<br/>hand-coded reasons + news text] --> B[Leakage filter<br/>strip price-reaction sentences]
+    B --> C[Ticker resolution<br/>press-release regex + fuzzy match]
+    C --> D[Event study<br/>market model β on t-250..t-21<br/>CAR -1,+1]
+    B --> E[Stage 1 NLP<br/>TF-IDF → departure-type classifier<br/>out-of-fold probabilities]
+    B --> F[Keyword flags · L-M sentiment<br/>LSA topics · FinBERT embeddings]
+    D --> G[Pre-event market features<br/>momentum · idio vol · β · liquidity]
+    E & F & G --> H[Stage 2<br/>Logistic Regression + XGBoost<br/>walk-forward by year]
+    H --> I[predict.py<br/>live news → P tail drop]
+    D --> J[Placebo logit<br/>event vs. ordinary days<br/>firm-clustered SEs]
+```
+
+---
+
+## Design decisions
+
+Each choice below targets a specific failure mode common in event-driven ML.
+
+**1. Hand-labelled academic data instead of scraped headlines.**
+The open-source **CEO Dismissal Database** (Gentry et al., *Strategic Management Journal*) supplies expert-coded
+departure reasons *and* the underlying press-release text. That gives a clean supervised signal for the
+"why did they leave" task, which a headline scraper could never provide.
+
+**2. Abnormal returns, not raw returns.**
+A raw return mixes the CEO news with the market's move that day. A **market model**
+(β estimated on days −250…−21, with a gap so the estimate isn't contaminated by the event) isolates the
+firm-specific reaction. A **[−1, +1] window** absorbs after-close announcements and date imprecision.
+
+**3. A placebo-controlled test before any ML.**
+Before predicting anything, the project establishes that the effect is real. It runs a logistic regression of
+event days against **3,918 randomly drawn ordinary days for the same stocks**, with SEs clustered by firm. This
+controls for firm-level drift and model misspecification, which a simple t-test on CARs cannot.
+
+**4. Reframing the target from "down?" to "tail drop?"**
+The naive target (sign of the return) is mostly noise: even the *true* hand-coded reason only reaches AUC 0.53.
+Risk-relevant targets were tested instead: >2% and >5% abnormal drops, and a **volatility-normalised drop
+(> 1σ of the stock's own 3-day idiosyncratic vol)**. The last one is the honest test of the NLP. Fixed-%
+thresholds partly reward the model for spotting volatile stocks, while the σ-scaled target removes that
+shortcut, isolating information that comes purely from the text.
+
+**5. Two-stage NLP with out-of-fold stacking.**
+Stage 1 is a TF-IDF classifier trained on all 3,332 texts. It infers the *departure type* from wording (76%
+accuracy vs. 48% majority baseline), since live news never says "this is a performance dismissal." Its
+probabilities feed Stage 2 through **out-of-fold predictions**, so the downstream model never sees in-sample
+fits. Domain features sit alongside it: 19 trader-intuition flags ("effective immediately", interim CEO,
+guidance cut, poached), Loughran-McDonald-style sentiment, LSA topics and **FinBERT** sentiment + embeddings.
+
+**6. Leakage controls throughout.**
+- Sentences describing the share-price reaction are regex-stripped from the text before modelling.
+- Every fitted text component (TF-IDF, SVD, PCA on FinBERT, reason classifier) is **re-fit inside each fold**.
+- **Walk-forward validation by year** (train < Y, test = Y, 2012–2024) mirrors live deployment. There is no shuffling across time.
+
+**7. Interpretable baseline, nonlinear challenger, ablation.**
+Regularised logistic regression (CV-tuned L2) is the interpretable baseline and XGBoost (shallow, heavily
+regularised) is the nonlinear challenger. A formal **ablation** isolates what each feature family contributes,
+including FinBERT.
+
+---
 
 ## Results
 
-### 1. Yes: CEO departures push stocks down on average
-- Mean CAR[−1,+1] = **−1.15%** (t = −5.9, n = 1,353).
-- Placebo logit, event vs ordinary day for the same stock:
+### Effect size by departure type
+![Placebo odds ratios](reports/figures/placebo_odds_ratios.png)
 
-| Outcome | Event-day odds ratio | p |
-|---|---|---|
-| Any abnormal decline | 1.31 | 1e−5 |
-| Abnormal drop > 2% | **1.65** | 3e−14 |
-| Drop > 1σ (vol-scaled) | **2.38** | 5e−29 |
+### Out-of-sample predictive power
+![Model AUC](reports/figures/model_auc.png)
 
-- The effect depends heavily on **why** the CEO left (odds of a >2% drop vs an ordinary day): poached by another firm **5.9×**, fired for legal reasons **3.5×**, fired for performance **2.6×**, retired 1.3×, M&A-related 1.1× (not significant).
-
-### 2. Predicting individual events (walk-forward out-of-sample)
-
-| Target | Base rate | LR market-only | LR text+market | XGBoost | Ensemble (all features) |
+| Target | Base rate | Market only | NLP + market | XGBoost (all) | Ensemble |
 |---|---|---|---|---|---|
-| Any decline (sign) | 59% | 0.47 | 0.51 | 0.49 | 0.50 |
-| Drop > 2% | 35% | 0.60 | 0.60 | 0.60 | **0.61** |
-| Drop > 5% | 19% | 0.62 | 0.62 | 0.63 | **0.63** |
-| Drop > 1σ (vol-scaled) | 28% | 0.51 | **0.56** | 0.56 | 0.56 |
+| Any decline | 59% | 0.470 | 0.508 | 0.503 | 0.508 |
+| Drop > 2% | 35% | 0.596 | 0.596 | 0.601 | **0.607** |
+| Drop > 5% | 19% | 0.621 | 0.621 | **0.633** | 0.631 |
+| Drop > 1σ (vol-scaled) | 28% | 0.513 | **0.563** | 0.555 | 0.560 |
 
-*(AUC)*
+*ROC-AUC, walk-forward 2012–2024, 1,016 out-of-sample events. Log-loss and Brier scores are in `reports/oos_metrics.csv`.*
 
-What this means:
-- **The sign is not predictable.** A 3-day idiosyncratic σ of about 4% swamps a mean effect of about 1%. Even a logit given the *true* hand-coded reason only reaches AUC 0.53.
-- **Large drops are predictable.** But for fixed-% thresholds, much of that comes from volatility (volatile stocks cross 2% more often in *either* direction).
-- **The vol-scaled target isolates the news signal:** market features alone score 0.51, text features 0.56. The ceiling with the true reason is about 0.57–0.61, and the text model gets most of the way there.
-- Ranked by model score, the riskiest third of announcements averaged **−2.4%** CAR, against **−0.9%** for the safest third.
+### Economic significance
+![Risk terciles](reports/figures/risk_terciles.png)
 
-### 3. FinBERT ablation (AUC, walk-forward OOS)
+### FinBERT ablation
+FinBERT tone tracks departure type strongly (mean P(negative) is 0.72 for misconduct firings vs 0.14 for
+retirements), and on its own it beats market features on the σ-scaled target (0.532 vs 0.513). But it adds
+**no incremental lift** over the domain-engineered features (0.560 vs 0.563). Its information is already
+captured by the departure-type classifier and keyword flags. It stays in the served model for robustness on
+messy live news text.
 
-| Model | Drop > 2% | Drop > 5% | Drop > 1σ (vol-scaled) |
-|---|---|---|---|
-| LR, market only | 0.596 | 0.621 | 0.513 |
-| LR, FinBERT + market | 0.595 | 0.609 | 0.532 |
-| LR, hand-built text + market | 0.596 | 0.621 | **0.563** |
-| LR, everything | 0.595 | 0.610 | 0.560 |
-| XGBoost, everything | 0.601 | 0.633 | 0.555 |
-| Ensemble (served) | 0.607 | 0.631 | 0.560 |
+### What drives risk (standardised LR coefficients)
+**Raises risk:** idiosyncratic vol, β, "resign", "poached / joining another company", earnings news released
+the same day, legal or investigation language, FinBERT negativity.
+**Lowers risk:** "retire", "personal reasons", activist involvement (plausibly read as a catalyst), liquidity, FinBERT positivity.
 
-**FinBERT adds no out-of-sample lift.** On its own it carries signal: its tone tracks departure type (mean P(negative) is 0.72 for legal firings vs 0.14 for retirements), and it beats market-only features on the vol-scaled target. But that information is already captured by the departure-type classifier and keyword flags. Even so, its `fb_negative` and `fb_positive` scores end up among the larger LR coefficients. FinBERT stays in the served model as a stronger tone reader for messy live news, and `predict.py` prints its tone.
+---
 
-## Usage
+## Live inference
 
 ```bash
 cd src
-python predict.py --ticker XYZ --text "XYZ said CEO Jane Doe resigned effective immediately..."
+python predict.py --ticker UNH --date 2025-05-13 --text "UnitedHealth CEO Andrew Witty has resigned effective immediately for personal reasons... suspended its 2025 financial outlook"
 python predict.py --ticker XYZ --file article.txt
-python predict.py --ticker XYZ --fetch-news "XYZ CEO steps down"     # pulls Google News RSS, last 7 days
-python predict.py --ticker UNH --date 2025-05-13 --text "..."        # score a past announcement
+python predict.py --ticker XYZ --fetch-news "XYZ CEO steps down"      # Google News RSS, last 7 days
 ```
-To rebuild everything from scratch, run `./run.sh` (about 15 minutes).
 
-## Caveats
-- **Survivorship bias:** only firms Yahoo still has prices for (mostly survivors). Delisted or acquired firms are dropped, so 1,353 of 3,332 events are used.
-- **Training text ≠ live text:** the notes are researcher-written summaries plus press-release excerpts, while live input is raw news. Expect some degradation.
-- **Announcement-date precision:** day 0 is the first trading day on or after the reported date, and the [−1,+1] window absorbs most timing error. Same-day earnings or guidance news is mixed in; the `kw_earnings` and `kw_cut_guidance` flags are there to capture it.
-- **Small, weak signal:** an AUC of 0.56–0.64 is a real edge for ranking risk, but not a trading signal on its own. There is no transaction-cost or tradability analysis.
+```
+=== UNH  news date 2025-05-13 ===
+Inferred departure type: fired_performance 37%, health 21%, retired 14%
+Text signals: immediate, successor_named, resign, earnings, cut_guidance, personal
+FinBERT tone: negative 95%, neutral 5%, positive 1%
 
-## Next ideas
-- Pull 8-K Item 5.02 filing timestamps from EDGAR for exact announcement times (needs an SEC User-Agent with contact info).
-- Fine-tune FinBERT end-to-end on the reason labels (the frozen embedding + PCA is lossy), or use an LLM extracting structured fields (forced? successor ready? same-day guidance?).
-- Recover delisted firms through CRSP/WRDS to remove survivorship bias.
-- Regress CAR directly (quantile regression on the left tail) instead of thresholded labels.
+target (3-day CAR vs market model)       base     LR    XGB    ENS  OOS AUC(ens)
+P(abnormal drop > 2%                )  33.5%  44.3%  39.4%  41.8%  0.607
+P(abnormal drop > 5%                )  17.4%  24.9%  23.7%  24.3%  0.631
+P(drop > 1 sigma (vol-scaled)       )  26.4%  44.2%  24.9%  34.6%  0.560
+```
+*(The stock fell about 18%. The model flagged elevated risk but understates how large the tail is.)*
+
+---
+
+## Repository
+
+```
+src/
+  build_events.py   departure events + leakage-filtered news text
+  map_tickers.py    company → ticker resolution
+  event_study.py    prices, market-model CARs, pre-event features
+  finbert.py        cached FinBERT sentiment + embeddings (Apple MPS / CPU)
+  placebo.py        placebo-controlled logistic regression
+  features.py       NLP feature engineering (shared by train + predict)
+  train.py          walk-forward LR / XGBoost, ablation, final model
+  predict.py        live inference CLI
+  make_figures.py   README figures
+reports/            metrics, OOS predictions, regression tables, figures
+run.sh              full rebuild from raw data (~15 min)
+```
+
+## Limitations & next steps
+- **Survivorship bias:** only firms with prices still available on Yahoo are kept (1,353 of 3,332), so delisted and acquired firms drop out. CRSP via WRDS would fix this.
+- **Domain shift:** the training text is curated summaries plus press-release excerpts, while live input is raw news.
+- **Timestamp precision:** EDGAR 8-K Item 5.02 timestamps would allow intraday event windows.
+- **Modelling:** fine-tune FinBERT end-to-end on departure type; quantile regression on the left tail of CAR; LLM-based structured extraction (was the exit forced? is a successor ready? was guidance released the same day?).
+- **Trading:** turning the risk score into a strategy needs borrow costs, announcement-time execution and a capacity analysis.
+
+*Data: Gentry, Harrison, Quigley & Boivie, Open Sourced Database for CEO Dismissal (Zenodo 23328926). Prices: Yahoo Finance.*
